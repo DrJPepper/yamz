@@ -24,7 +24,6 @@
 # ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import configparser
 from itertools import chain
 from urllib.request import Request, urlopen
 from urllib.error import URLError
@@ -44,53 +43,13 @@ import flask_login as l
 import seaice
 from pagination import getPaginationDetails
 
-# Parse command line options. #
+# Just going to leave this, but they no longer mean it isn't
+# running in production or that it's running in dev mode
+prod_mode = False     # default
+DEPLOYMENT_MODE = 'dev'
 
-parser = optparse.OptionParser()
-
-parser.description = """\
-This program is a Python/Flask-based web frontend for the SeaIce metadictionary.
-SeaIce is a database comprised of a set of user-defined, crowd-sourced terms and
-relations. The goal of SeaIce is to develop a succinct and complete set of
-metadata terms to register just about any type of file or data set. 'ice' is
-distributed under the terms of the BSD license with the hope that it will be
-# useful, but without warranty. You should have received a copy of the BSD
-license with this program; otherwise, visit
-http://opensource.org/licenses/BSD-3-Clause.
-"""
-
-parser.add_option("--config", dest="config_file", metavar="FILE",
-                  help="User credentials for local PostgreSQL database. " +
-                  "If 'heroku' is given, then a connection to a foreign host specified by " +
-                  "DATABASE_URL is established.",
-                  default='heroku')
-
-parser.add_option('--credentials', dest='credentials_file', metavar='FILE',
-                  help='File with OAuth-2.0 credentials. (Defaults to `.seaice_auth`.)',
-                  default='.seaice_auth')
-
-parser.add_option('--deploy', dest='deployment_mode',
-                  help='Deployment mode, used to choose OAuth parameters in credentials file.',
-                  default='heroku')
-
-parser.add_option("-d", "--debug", action="store_true", dest="debug",
-                  default=False,
-                  help="Start flask in debug mode.")
-
-parser.add_option("--role", dest="db_role", metavar="USER",
-                  help="Specify the database role to use for the DB connector pool. These roles " +
-                  "are specified in the configuration file (see --config).",
-                  default="default")
-
-(options, args) = parser.parse_args()
-
-# Figure out if we're in production mode.  Look in 'heroku' section only.
-config = configparser.ConfigParser()
-config.read('.seaice_auth')
-if config.has_option('heroku', 'prod_mode'):
-    prod_mode = config.getboolean('heroku', 'prod_mode')
-else:
-    prod_mode = False       # default
+CONFIG_FILE = '/srv/http/yamz/.seaice'
+AUTH_FILE = '/srv/http/yamz/.seaice_auth'
 
 # Setup flask application #
 print("ice: starting ...")
@@ -98,18 +57,13 @@ print("ice: starting ...")
 db_config = None
 
 try:
-
-    if options.config_file == "heroku":
-        app = seaice.SeaIceFlask(__name__)
-
-    else:
-        db_config = seaice.auth.get_config(options.config_file)
-        app = seaice.SeaIceFlask(
-            __name__,
-            db_user=db_config.get(options.db_role, 'user'),
-            db_password=db_config.get(options.db_role, 'password'),
-            db_name=db_config.get(options.db_role, 'dbname')
-            )
+    db_config = seaice.auth.get_config(CONFIG_FILE)
+    app = seaice.SeaIceFlask(
+        __name__,
+        db_user=db_config.get('default', 'user'),
+        db_password=db_config.get('default', 'password'),
+        db_name=db_config.get('default', 'dbname')
+        )
 
 except pgdb.DatabaseError as e:
     print("error: %s" % e, file=sys.stderr)
@@ -117,24 +71,24 @@ except pgdb.DatabaseError as e:
 
 
 try:
-    credentials = seaice.auth.get_config(options.credentials_file)
+    credentials = seaice.auth.get_config(AUTH_FILE)
 
     google = seaice.auth.get_google_auth(
-        credentials.get(options.deployment_mode, 'google_client_id'),
-        credentials.get(options.deployment_mode, 'google_client_secret'))
+        credentials.get(DEPLOYMENT_MODE, 'google_client_id'),
+        credentials.get(DEPLOYMENT_MODE, 'google_client_secret'))
 
-    orcid = seaice.auth.get_orcid_auth(
-        credentials.get(options.deployment_mode, 'orcid_client_id'),
-        credentials.get(options.deployment_mode, 'orcid_client_secret'))
+    #orcid = seaice.auth.get_orcid_auth(
+    #    credentials.get(DEPLOYMENT_MODE, 'orcid_client_id'),
+    #    credentials.get(DEPLOYMENT_MODE, 'orcid_client_secret'))
 
 except OSError:
-    print("error: config file '%s' not found" % options.config_file, file=sys.stderr)
+    print("error: config file '%s' not found" % CONFIG_FILE, file=sys.stderr)
     sys.exit(1)
 
 
 app.debug = True
 app.use_reloader = True
-app.secret_key = credentials.get(options.deployment_mode, 'app_secret')
+app.secret_key = credentials.get(DEPLOYMENT_MODE, 'app_secret')
 
 # Session logins #
 
